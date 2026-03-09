@@ -1,32 +1,124 @@
-# TEESimulator – A Full TEE Emulation Framework
+<p align="center">
+  <h1 align="center">🔐 TEESimulator</h1>
+  <p align="center"><b>Full TEE Emulation for Rooted Android</b></p>
+  <p align="center">Hardware attestation. Software keys. Zero detection.</p>
+  <p align="center">
+    <img src="https://img.shields.io/badge/version-v4.0-blue?style=for-the-badge" alt="v4.0">
+    <img src="https://img.shields.io/badge/Android-10%2B-green?style=for-the-badge&logo=android" alt="Android 10+">
+    <img src="https://img.shields.io/badge/Telegram-community-blue?style=for-the-badge&logo=telegram" alt="Telegram">
+  </p>
+</p>
 
-**TEESimulator** is a system module designed to create a complete, software-based simulation of a hardware-backed Trusted Execution Environment ([TEE](https://source.android.com/docs/security/features/trusty)) for [Key Attestation](https://developer.android.com/privacy-and-security/security-key-attestation).
+---
 
-The project's goal is to move beyond simple certificate patching and build a robust framework that can create and manage virtual, self-consistent cryptographic keys.
+> [!NOTE]
+> **This is a personal fork of [JingMatrix/TEESimulator](https://github.com/JingMatrix/TEESimulator)** with additional hardening, native Rust certificate generation, key persistence, and anti-detection features. For the upstream project, see the original repo.
 
-## ✨ Core Principles
+---
 
-*   **Bypass Hardware-Backed Attestation:** The primary goal of this project is to defeat Key Attestation, a security mechanism that allows apps to verify that they are running on a secure, unmodified device. This module provides the tools to bypass these checks on rooted or modified devices.
-*   **Stateful Emulation:** Instead of patching responses from the real TEE, the ultimate goal is to create and manage virtual keys entirely in a simulated software environment. Any request concerning a virtual key will be handled by the simulator, ensuring perfect consistency without ever touching the real hardware.
-*   **Architectural Interception:** By hooking low-level Binder IPC calls to the Keystore, the framework can transparently redirect requests for virtual keys to the software-based simulator, while allowing requests for real keys to pass through to the hardware TEE.
-*   **100% FOSS:** Licensed under GPLv3, ensuring it stays free, auditable, and compliant with open-source laws.
+## 🧬 What is TEESimulator?
 
-## 📱 Requirements
-- Android 10 or above
+TEESimulator is a **complete software simulation** of Android's hardware-backed [Trusted Execution Environment](https://source.android.com/docs/security/features/trusty) for [Key Attestation](https://developer.android.com/privacy-and-security/security-key-attestation). Instead of patching certificates from the real TEE after the fact, TEESimulator intercepts Binder IPC at the `ioctl` level and generates entire certificate chains from scratch — signed by your keybox, with correct attestation extensions, indistinguishable from hardware-generated keys.
 
-## 📦 Installation & Configuration
+The result: **apps that verify hardware attestation see a legitimate, unmodified device** — even on rooted hardware with an unlocked bootloader.
 
-1.  Flash this module via (Magisk / KernelSU / APatch) and reboot. It will replace [TrickyStore](https://github.com/5ec1cff/TrickyStore), [TrickyStoreOSS](https://github.com/beakthoven/TrickyStoreOSS) and their forks.
-2.  (Optional) Place a hardware-backed `keybox.xml` at `/data/adb/tricky_store/keybox.xml`. This provides the cryptographic "root of trust" for the simulator.
-3.  (Optional) Customize target packages in `/data/adb/tricky_store/target.txt`.
-4.  (Optional) Customize the simulated security patch level in `/data/adb/tricky_store/security_patch.txt`.
-5.  Enjoy!
+> **This is not TrickyStore.** TEESimulator replaces TrickyStore and its forks entirely. It shares the same config paths for drop-in compatibility, but the architecture is fundamentally different: native Rust certificate generation, binder-level interception via `lsplt`, per-UID rate limiting, key persistence, and a multi-layer defense against detector apps.
 
-**All configuration files are monitored and will take effect immediately upon saving.**
+---
+
+## 🔥 Why TEESimulator?
+
+🔐 **Native Cert Generation** — v4.0 generates X.509 certificate chains in Rust with `ring` and manual DER encoding. No BouncyCastle overhead, no Java crypto quirks, byte-perfect issuer chain linkage.
+
+🎯 **Binder-Level Interception** — Hooks `ioctl()` on `libc.so` via `lsplt` inside the `keystore2` process. Intercepts `generateKey`, `importKey`, and `getKeyEntry` transactions before the HAL ever sees them.
+
+🛡️ **Detector Resistant** — Per-UID rate limiting blocks DuckDetector-style keygen flooding. Oversized challenges rejected with real KeyMint error codes. Chain consistency verified byte-for-byte.
+
+💾 **Key Persistence** — Generated keys survive reboots. Apps that store attestation keys (banking, biometrics) don't break after a restart.
+
+🔧 **Drop-In Replacement** — Same config paths as TrickyStore (`/data/adb/tricky_store/`). Swap the module ZIP, keep your keybox and target list.
+
+---
+
+## ✨ Features
+
+**Core Attestation Engine**
+- [x] **Full certificate chain generation** — leaf + intermediates + root, signed by your keybox
+- [x] **Native Rust certgen** — `libcertgen.so` built with `ring`, `rsa`, and manual DER assembly
+- [x] **BouncyCastle fallback** — unsupported curves (P-224, P-521, Curve25519) fall back to Java
+- [x] **ASN.1 attestation extensions** — OID 1.3.6.1.4.1.11129.2.1.17 with all AOSP-specified tags
+- [x] **Multi-keybox support** — different keybox files per app group via `target.txt`
+
+**Interception Layer**
+- [x] **Binder ioctl hook** — `lsplt` PLT hook on `libc.so` inside `keystore2` process
+- [x] **generateKey / importKey / getKeyEntry** — all three transaction types intercepted
+- [x] **256KB native payload cap** — oversized binder payloads bypass interception cleanly
+- [x] **Challenge validation** — rejects >128-byte attestation challenges with `INVALID_INPUT_LENGTH`
+
+**Hardening**
+- [x] **Per-UID rate limiter** — 2 hardware keygens per 30s burst window, software fallback on overflow
+- [x] **importKey eviction guard** — retained patch chains prevent generate-then-import cache attacks
+- [x] **Key persistence** — file-backed storage with file-level locking, survives reboots and keybox rotations
+- [x] **Global exception handler** — uncaught exceptions logged, daemon stays alive
+
+**Configuration**
+- [x] **Live config reload** — `FileObserver` watches all config files, changes apply immediately
+- [x] **Security patch spoofing** — per-package `system`, `vendor`, `boot` patch levels with dynamic templates
+- [x] **Lifecycle scripts** — KSU Action button clears key cache, uninstall removes all traces
+
+---
+
+## 📋 Requirements
+
+> [!IMPORTANT]
+> TEESimulator requires root access and a valid `keybox.xml` for hardware-level attestation results. Without a keybox, the module generates software-level certificates that won't pass strict hardware attestation checks.
+
+**You need:**
+1. Android 10 or above
+2. A supported root manager (KernelSU, Magisk, or APatch)
+3. A hardware-backed `keybox.xml` placed at `/data/adb/tricky_store/keybox.xml`
+
+---
+
+## 📱 Compatibility
+
+### Root Managers
+
+| Manager | Status | Notes |
+|---|---|---|
+| KernelSU | ✅ Tested | Full support including Action button and lifecycle scripts |
+| Magisk | ✅ Supported | Standard module install |
+| APatch | ✅ Supported | Standard module install |
+
+### Tested Devices
+
+| Device | Android | TEE | Status |
+|---|---|---|---|
+| Redmi 14C (2409BRN2CA) | 14 (SDK 34) | Beanpod KeyMaster | ✅ Daily driver |
+
+> Tested against DuckDetector, Luna, Play Integrity, and Key Attestation Demo. If you test on a different device, [open an issue](https://github.com/Enginex0/TEESimulator/issues) with your results.
+
+---
+
+## 🚀 Quick Start
+
+1. **Download** the latest release ZIP from [Releases](https://github.com/Enginex0/TEESimulator/releases)
+2. **Install** via your root manager (KSU / Magisk / APatch) and reboot
+3. **Place your keybox** at `/data/adb/tricky_store/keybox.xml`
+4. **Configure targets** in `/data/adb/tricky_store/target.txt`
+5. **Verify** — check Play Integrity or run Key Attestation Demo
+
+TEESimulator replaces TrickyStore, TrickyStoreOSS, and their forks. Existing config files are compatible.
+
+---
+
+## ⚙️ Configuration
+
+All configuration files live at `/data/adb/tricky_store/` and are monitored by `FileObserver` — changes take effect immediately without rebooting.
 
 ### The `keybox.xml` Root of Trust
 
-This file provides the master cryptographic identity for the simulator. It contains a private key and a valid, hardware-backed certificate chain from a real device. The simulator uses this to sign the virtual certificates it generates, making them appear legitimate to verifiers.
+This file provides the master cryptographic identity. It contains a private key and a hardware-backed certificate chain from a real device. TEESimulator signs all generated certificates with this key, making them appear legitimate to verifiers.
 
 ```xml
 <?xml version="1.0"?>
@@ -40,101 +132,106 @@ This file provides the master cryptographic identity for the simulator. It conta
 </AndroidAttestation>
 ```
 
-### Mode and Keybox Configuration (`target.txt`)
+### Target Packages (`target.txt`)
 
-TEESimulator currently operates in two primary modes as it transitions towards full emulation.
-You can control the simulation mode and the specific keybox.xml file used on a per-package basis.
+Controls which apps get intercepted and what simulation mode to use.
 
 #### Mode Suffixes
 
-*   **`!` → Force Generation Mode:** Creates a complete, software-based virtual key. This is the foundation of the full TEE simulation.
-*   **`?` → Force Leaf Hacking Mode:** A legacy mode where a real TEE key is generated, but its attestation certificate is intercepted and modified.
-*   **No symbol → Automatic Mode:** The module selects the most appropriate mode for the device.
+*   **`!` → Force Generation** — Creates a complete software-based virtual key. Full TEE simulation.
+*   **`?` → Force Leaf Hacking** — Real TEE key generated, but its attestation certificate is intercepted and patched.
+*   **No symbol → Automatic** — Module selects the best mode for your device.
 
-#### Multi-Keybox Configuration
+#### Multi-Keybox
 
-You can specify different keybox files for different groups of applications. This is done by adding a line with the filename in square brackets (e.g., [demo_keybox.xml]).
+Specify different keybox files for different app groups. Apps listed after a `[filename.xml]` line use that keybox. Apps before any declaration use the default `keybox.xml`.
 
-All applications listed after this line will use the specified keybox file, until a new keybox is declared. Applications listed before any custom keybox declaration will use the default `keybox.xml`.
-
-For example:
 ```
-# These two apps will use the default /data/adb/tricky_store/keybox.xml
+# Default keybox
 com.google.android.gms!
 io.github.vvb2060.keyattestation?
 
-# Switch to a different keybox for the following apps.
-# The file must be located at /data/adb/tricky_store/aosp_keybox.xml
+# Switch to a different keybox for the following apps
 [aosp_keybox.xml]
 com.google.android.gsf
 
-# Switch again to another keybox.
-# The file must be located at /data/adb/tricky_store/demo_keybox.xml
+# Another keybox
 [demo_keybox.xml]
 org.matrix.demo
 ```
 
 ### Security Patch Level (`security_patch.txt`)
 
-This file allows you to configure the `osPatchLevel`, `vendorPatchLevel`, and `bootPatchLevel` that the simulator will report in its patched or forged attestation certificates.
+Configure the `osPatchLevel`, `vendorPatchLevel`, and `bootPatchLevel` reported in attestation certificates. This only affects attestation data — it does not change actual system properties.
 
-**Note:** This only affects the Key Attestation data generated by the simulator. It does not change the actual system properties of your device.
+#### Global and Per-Package
 
-#### Global and Per-Package Configuration
+Settings at the top of the file are global defaults. Add `[package.name]` to override for specific apps.
 
-You can set a global patch level that applies to all applications, and you can also override these settings for specific packages. The syntax is hierarchical:
+#### Keys
 
-*   Settings defined at the top of the file, before any `[package.name]` line, are **global** and serve as the default for all apps.
-*   To create a specific configuration for an application, add its package name in square brackets (e.g., `[com.google.android.gms]`). All settings following this line will apply *only* to that package until a new package context is declared.
-
-#### Configuration Keys and Values
-
-You can specify the patch level for the following components using a `key=value` format:
-
-*   `system`: The main OS patch level.
-*   `vendor`: The vendor patch level.
-*   `boot`: The boot/kernel patch level.
-*   `all`: A convenient shorthand to set the same date for `system`, `vendor`, and `boot` simultaneously. Any individual key can still be used to override the value set by `all`.
-
-Dates should be provided in `YYYY-MM-DD` format (e.g., `2025-11-05`).
+| Key | Scope |
+|---|---|
+| `system` | OS patch level |
+| `vendor` | Vendor patch level |
+| `boot` | Boot/kernel patch level |
+| `all` | Shorthand — sets all three at once |
 
 #### Special Keywords
 
-In addition to static dates, several special keywords provide advanced, dynamic control:
+| Keyword | Effect |
+|---|---|
+| `today` | Current date, dynamically resolved on each attestation |
+| `YYYY-MM-DD` templates | Semi-dynamic — `YYYY-MM-05` resolves to the 5th of the current month |
+| `no` | Omit this patch level tag entirely from the attestation |
+| `device_default` | Use the device's real hardware value |
+| `prop` | Read from `ro.build.version.security_patch` (matches what detectors see via getprop) |
 
-*   **`today`**: Dynamically uses the current date every time an attestation is generated. This ensures the device always appears up-to-date without needing manual edits.
-
-*   **Date Templates**: You can create semi-dynamic dates using `YYYY`, `MM`, and `DD` as placeholders for the current year, month, and day. For example, `YYYY-MM-05` will always resolve to the 5th of the current month and year.
-
-*   **`no`**: This keyword instructs the simulator to **completely omit** the corresponding patch level tag from the generated attestation.
-
-*   **`device_default`**: This keyword forces the simulator to fall back and use the device's **real hardware value** for that specific patch level. This is essential for creating exceptions to a global override or an `all` rule.
-
-#### Example Configuration
-
-This example demonstrates how to combine global settings, per-package overrides, and special keywords for fine-grained control.
+#### Example
 
 ```
-# --- Global Configuration ---
-# This is the default for all apps unless specified otherwise.
-# - Forge a recent system patch level, the 5th of the current month (a common patch date).
-# - Use the device's real vendor patch level.
-# - Do not report a boot patch level at all.
+# Global — default for all apps
 system=YYYY-MM-05
 vendor=device_default
 boot=no
 
-# --- Per-Package Override for Google Play Services ---
-# This app will report an older, specific date for its system patch.
-# It will inherit the global settings for vendor (device_default) and boot (no).
+# Override for GMS
 [com.google.android.gms]
 system=2024-10-01
 
-# --- Per-Package Override for a Demo App ---
-# This app gets a completely custom configuration.
+# Custom config for a demo app
 [org.matrix.demo]
-# Set a base date for all patch levels...
 all=2025-09-15
-# ...but make an exception: use the real boot patch level instead of the one from 'all'.
 boot=device_default
 ```
+
+---
+
+## 💬 Community
+
+<p align="center">
+  <a href="https://t.me/superpowers9">
+    <img src="https://img.shields.io/badge/⚡_JOIN_THE_GRID-SuperPowers_Telegram-black?style=for-the-badge&logo=telegram&logoColor=cyan&labelColor=0d1117&color=00d4ff" alt="Telegram">
+  </a>
+</p>
+
+---
+
+## 🙏 Credits
+
+- **[JingMatrix](https://github.com/JingMatrix/TEESimulator)** — original author of TEESimulator and the interception architecture
+- **[5ec1cff](https://github.com/5ec1cff/TrickyStore)** — TrickyStore, the project that pioneered keystore interception on Android
+- **[LSPlt](https://github.com/LSPosed/LSPlt)** — PLT hook library used for binder interception
+- **[ring](https://github.com/briansmith/ring)** — Rust cryptography library powering native cert generation
+
+---
+
+## 📄 License
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
+---
+
+<p align="center">
+  <b>🔐 Because the best attestation is the one the TEE never generated.</b>
+</p>
