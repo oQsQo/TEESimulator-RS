@@ -137,7 +137,14 @@ private class CipherPrimitive(
     private val isAead = params.blockMode.firstOrNull() == BlockMode.GCM
     private val cipher: Cipher =
         Cipher.getInstance(JcaAlgorithmMapper.mapCipherAlgorithm(params)).apply {
-            init(opMode, cryptoKey)
+            val nonce = params.nonce
+            if (nonce != null && isAead) {
+                init(opMode, cryptoKey, javax.crypto.spec.GCMParameterSpec(128, nonce))
+            } else if (nonce != null) {
+                init(opMode, cryptoKey, javax.crypto.spec.IvParameterSpec(nonce))
+            } else {
+                init(opMode, cryptoKey)
+            }
         }
 
     override fun updateAad(aadInput: ByteArray?) {

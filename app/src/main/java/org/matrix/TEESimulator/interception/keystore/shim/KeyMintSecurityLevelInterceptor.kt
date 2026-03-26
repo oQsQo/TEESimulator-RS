@@ -360,6 +360,10 @@ class KeyMintSecurityLevelInterceptor(
             keyParams.copy(
                 purpose = parsedParams.purpose,
                 digest = parsedParams.digest.ifEmpty { keyParams.digest },
+                blockMode = parsedParams.blockMode.ifEmpty { keyParams.blockMode },
+                padding = parsedParams.padding.ifEmpty { keyParams.padding },
+                nonce = parsedParams.nonce,
+                minMacLength = parsedParams.minMacLength ?: keyParams.minMacLength,
             )
         } else parsedParams
 
@@ -863,6 +867,7 @@ class KeyMintSecurityLevelInterceptor(
                     usageExpireDateTime = null,
                     usageCountLimit = null,
                     callerNonce = null,
+                    nonce = null,
                     unlockedDeviceRequired = null,
                     includeUniqueId = null,
                     rollbackResistance = null,

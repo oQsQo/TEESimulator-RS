@@ -436,6 +436,7 @@ private data class LegacyKeygenParameters(
             usageExpireDateTime = null,
             usageCountLimit = null,
             callerNonce = null,
+            nonce = null,
             unlockedDeviceRequired = null,
             includeUniqueId = null,
             rollbackResistance = null,
