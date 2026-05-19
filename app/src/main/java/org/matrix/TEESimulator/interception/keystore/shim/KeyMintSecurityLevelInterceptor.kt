@@ -371,7 +371,11 @@ class KeyMintSecurityLevelInterceptor(
             )
         } else parsedParams
 
-        val opLatency = if (securityLevel == SecurityLevel.STRONGBOX) STRONGBOX_OP_LATENCY_FLOOR_MS else 0L
+        val opLatency = when (securityLevel) {
+            SecurityLevel.STRONGBOX -> STRONGBOX_OP_LATENCY_FLOOR_MS
+            SecurityLevel.TRUSTED_ENVIRONMENT -> TEE_OP_LATENCY_FLOOR_MS
+            else -> 0L
+        }
         val softwareOperation = SoftwareOperation(txId, generatedKeyInfo.keyPair, generatedKeyInfo.secretKey, effectiveParams, opLatency)
 
         if (keyParams?.usageCountLimit != null) {
@@ -933,6 +937,7 @@ class KeyMintSecurityLevelInterceptor(
         private const val TEE_LATENCY_FLOOR_MS = 15L
         private const val STRONGBOX_KEYGEN_LATENCY_FLOOR_MS = 250L
         private const val STRONGBOX_OP_LATENCY_FLOOR_MS = 80L
+        private const val TEE_OP_LATENCY_FLOOR_MS = 4L
         private const val KEYMINT_TOO_MANY_OPERATIONS = -29
         private const val KEYMINT_CANNOT_ATTEST_IDS = -66
         private const val KEYMINT_UNKNOWN_ERROR = -1000
