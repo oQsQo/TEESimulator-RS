@@ -42,13 +42,18 @@ object App {
 
         try {
             prepareEnvironment()
-            // Initialize and start the appropriate keystore interceptors.
-            initializeInterceptors()
+
+            // Spoof boot-state and patch-level props before any hook attaches,
+            // so keystore2's cached snapshot reflects the spoofed values.
+            BootStateManager.apply()
+            PatchLevelManager.initialize()
 
             // Load the package configuration.
             ConfigurationManager.initialize()
-            BootStateManager.apply()
-            PatchLevelManager.initialize()
+
+            // Initialize and start the appropriate keystore interceptors.
+            initializeInterceptors()
+
             // Set up the device's boot key and hash, which are crucial for attestation.
             AndroidDeviceUtils.setupBootKeyAndHash()
 
