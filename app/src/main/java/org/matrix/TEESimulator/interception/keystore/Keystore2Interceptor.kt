@@ -262,8 +262,12 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
         reply: Parcel?,
         resultCode: Int,
     ): TransactionResult {
-        if (target != keystoreService || reply == null || InterceptorUtils.hasException(reply))
-            return TransactionResult.SkipTransaction
+        if (target != keystoreService || reply == null) return TransactionResult.SkipTransaction
+        if (InterceptorUtils.hasException(reply)) {
+            val normalized = InterceptorUtils.normalizeServiceSpecificReply(reply)
+            return if (normalized != null) TransactionResult.OverrideReply(normalized)
+            else TransactionResult.SkipTransaction
+        }
 
         if (code == GET_NUMBER_OF_ENTRIES_TRANSACTION) {
             logTransaction(txId, "post-${transactionNames[code]!!}", callingUid, callingPid)
