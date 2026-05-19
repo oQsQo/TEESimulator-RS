@@ -3,7 +3,7 @@
 Authoring session date: 2026-05-19
 Branch: `feat/self-sufficient-spoofing`
 Source plan: `/home/rootdev/.claude/plans/fancy-humming-firefly.md`
-Status: 5 phase commits + 12 critic-fix commits + 5 second-adversarial-pass commits landed, full debug pipeline clean, all device tests deferred. 0 CRITICAL + 2 MAJOR (M6 device-only, M8 plan-only) remaining from the original critic list; two known limitations (F3 24 h re-arm, F13 PIF install-after-boot) documented. See "Second adversarial review — 2026-05-19" below.
+Status: 5 phase commits + 12 critic-fix commits + 5 second-adversarial-pass commits + 1 source-plan-cross-audit commit landed, full debug pipeline clean, all device tests deferred. 0 CRITICAL + 2 MAJOR (M6 device-only, M8 plan-only) remaining from the original critic list; two known limitations (F3 24 h re-arm, F13 PIF install-after-boot) documented. See "Source plan cross-audit — 2026-05-19" and "Second adversarial review — 2026-05-19" below.
 
 ## Resume protocol for next session
 
@@ -389,7 +389,6 @@ All findings below are convergent across 2+ critics or load-bearing in a single 
 - Commit subject lengths: `7abdba9`, `acdf452`, `14ec9c3` are 44-57 chars (some over the 50 limit). Not amend-worthy retroactively; note for future commits.
 - `uninstall.sh` missing cleanup for `last_bulletin_fetch.json.next` staging file (mobile-security + Opus).
 - BootStateManager `linkedMapOf` is theater — `mapOf` would do (Sonnet adv).
-- `appendHistory` sets `applied=isNewer` before `updateTo` returns; if `updateTo` rejects the date, history records `applied=true` (Sonnet generic).
 - Cargo PATH symlinks pre-laid for rootdev only. Other users (thinker, president) already have their own setups. Future new users (planner, claudetest) need to either log in (profile.d auto-lays cargo PATH) or manually source `/etc/profile.d/cargo-path.sh` mid-session.
 
 ### Detection-surface gaps (out of plan scope but flagged)
@@ -532,6 +531,20 @@ A second adversarial pass was dispatched after the 12 critic-fix commits landed:
 - **Opus F8** — `SystemProperties.get(..., Build.VERSION.SECURITY_PATCH)` is functionally equivalent to `Build.VERSION.SECURITY_PATCH`. Cosmetic; touching it is scope creep.
 - **Opus F11** — "UDP block" naming claim. "Block" reads as noun (group of rules), not verb. Semantics correct.
 - **Opus F12** — `latestKnown` uses `lastOrNull` instead of `maxOrNull`. Pre-existing minor (also flagged in the prior critic pass); out of CRITICAL+MAJOR scope.
+
+## Source plan cross-audit — 2026-05-19
+
+A third audit pass cross-checked every concrete requirement in `/home/rootdev/.claude/plans/fancy-humming-firefly.md` against the current branch state to catch silent scope drops the handoff prose might have swallowed. Every plan requirement landed in code. All but one of the implementation's deviations from the plan were deliberate: critic-driven hardening per the first and second adversarial reviews, AOSP-evidence-driven reversal of Commit B per M9, plan-ambiguity resolution per D12, and build infrastructure that emerged during work. The exception was a real spec gap, now closed.
+
+### Closed by `463e3b8`
+
+`fancy-humming-firefly.md:341` declared the bulletin-history status enum as `success | network_error | parse_error | validation_rejected`. The poller never emitted `validation_rejected`; when `PatchLevelManager.updateTo` silently rejected a date (format, floor, past-bound, future-bound, or atomicWrite IO error), history recorded `status="success"` and `applied=true` because the `applied` field was computed from `isNewer` before `updateTo` ran.
+
+Fix: `updateTo` now returns `Boolean`. `BulletinPoller.fetchAndParse` captures the result and branches — success on `true`, status `validation_rejected` with an explanatory `error` string on `false`. The pre-existing related MINOR ("appendHistory sets applied=isNewer before updateTo returns") is closed by the same commit and removed from the MINOR list above.
+
+### Smoke build after the fix
+
+`./scripts/package.sh --debug` → `TEESimulator-RS-v6.0.0-199-Debug.zip` (12 MB), 5 s incremental, exit 0.
 
 ## File index — everything touched this session
 
