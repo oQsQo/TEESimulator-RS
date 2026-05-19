@@ -3,7 +3,7 @@
 Authoring session date: 2026-05-19
 Branch: `feat/self-sufficient-spoofing`
 Source plan: `/home/rootdev/.claude/plans/fancy-humming-firefly.md`
-Status: 5 phase commits + 12 critic-fix commits landed, full debug pipeline clean, all device tests deferred, 0 CRITICAL + 2 MAJOR (M6 device-only, M8 plan-only) remaining. See "Critic fixes — 2026-05-19 continuation" below.
+Status: 5 phase commits + 12 critic-fix commits + 5 second-adversarial-pass commits landed, full debug pipeline clean, all device tests deferred. 0 CRITICAL + 2 MAJOR (M6 device-only, M8 plan-only) remaining from the original critic list; two known limitations (F3 24 h re-arm, F13 PIF install-after-boot) documented. See "Second adversarial review — 2026-05-19" below.
 
 ## Resume protocol for next session
 
@@ -30,6 +30,13 @@ This session ran as user `rootdev`. The rust toolchain, `~/.cargo` HDD symlink, 
 ## Branch state
 
 ```text
+3bf58de fix(spoof): validate currentPatch against date regex
+84161da docs(spoof): explain MAX_FUTURE_DAYS rationale
+1c64688 fix(spoof): serialize concurrent applyToProps calls
+0e752f8 fix(spoof): propagate read errors out of mergedContents
+a4af3d5 fix(spoof): require = in global key-assignment check
+44ea156 docs(plans): record critic-fix continuation in handoff
+bf82486 docs(plans): add gradle init script modernization plan
 49b7bfc fix(util): skip day synthesis for YYYY-MM input
 9b982d4 fix(interception): emit KEY_SIZE for EC keys
 c589e12 feat(spoof): hot-reload PIF via FileObserver
@@ -58,7 +65,7 @@ e0105d6 wip(keystore): add F1 Phase A diagnostic logs in updateAad path
 d4e2413 Merge pull request #21 from Andrea-lyz/fix/duck-detector-generate-fingerprint
 ```
 
-The top 12 commits (292f24a through 49b7bfc) are the critic-fix continuation. `9b982d4` reverts the earlier `d34630f` (still in history per "never amend published commits"). `e287e96` + `9941dec` are the prior handoff docs. Everything below `e287e96` matches the original session table. `e0105d6` was pre-existing on the base branch.
+The top 5 commits (`a4af3d5` through `3bf58de`) land the post-critic-review hardening from the second adversarial pass. The 12 commits below (`292f24a` through `49b7bfc`) are the first critic-fix continuation. `9b982d4` reverts the earlier `d34630f` (kept in history per "never amend published commits"). `e287e96` + `9941dec` are the prior handoff docs. Everything below `e287e96` matches the original session table. `e0105d6` was pre-existing on the base branch.
 
 All authored by `Enginex0 <enginex0@users.noreply.github.com>`. No `Co-Authored-By` trailers anywhere. All commit messages conform to Conventional Commits (subject ≤50 chars where possible, body wraps at 72). Per project policy, branch lives local only — no `git push`, no PR.
 
@@ -497,6 +504,34 @@ This drops the four `node:*_socket node_bind` lines. `node_bind` is only require
 - `./gradlew :app:compileDebugKotlin` clean after every commit (sub-second incrementals).
 - Final smoke build via `./scripts/package.sh --debug`: `TEESimulator-RS-v6.0.0-190-Debug.zip` (12,379,724 bytes), 14 s incremental, clean.
 - No device tests possible — ADB still absent.
+
+## Second adversarial review — 2026-05-19
+
+A second adversarial pass was dispatched after the 12 critic-fix commits landed: `general-purpose` at sonnet (broad cross-cut) and `rootdev-agents:kotlin-engineer` at opus (deep Kotlin/Android architecture). Five additional defects surfaced and were fixed; two were documented as known limitations.
+
+### Findings and resolutions
+
+| # | Source | Finding | Resolution | Commit |
+|---|---|---|---|---|
+| F1 | Opus | `isGlobalKeyAssignment` stripped any bare line whose first token matched a global key, eating malformed `system`/`all` shorthand on next atomicWrite | Require `'=' in trimmed` before treating as assignment | `a4af3d5` |
+| F2 | Opus | `mergedContents` `runCatching` silently rewrote with global block only on read failure, destroying `[pkg]` overrides | Drop the `runCatching` so IO errors propagate to atomicWrite -> updateTo's M3 try/catch, which logs and leaves file + props untouched | `0e752f8` |
+| F4 | Opus | `applyToProps` racy across main, BulletinPoller handler thread, and PifObserver inotify thread; concurrent resetprop for same prop with different dates could leave system/vendor mismatched | `@Synchronized` on the singleton's applyToProps | `1c64688` |
+| F10 | Opus | `MAX_FUTURE_DAYS = 60L` lacked rationale | KDoc explaining Pixel bulletin cadence + slip | `84161da` |
+| F14 | Sonnet | `currentPatch` returned raw `system=` value unvalidated; a malformed `system=tomorrow` made `date > current` always false and permanently suppressed updates | Validate against date pattern; log warning and treat as passive on mismatch | `3bf58de` |
+
+### Known limitations (documented, not fixed)
+
+- **F3** (Opus): when `security_patch.txt` is absent or in passive mode at first successful poll, BulletinPoller arms the 24 h steady cadence. A user who switches to active mode minutes later waits up to 24 h for the next bulletin compare. Workaround: reboot to restart the bootstrap cycle (next compare in 5 s). A proper fix (`FileObserver` on `PATCH_FILE` to re-arm on user edit) was deemed scope-creep for this pass.
+- **F13** (Sonnet): the PIF hot-reload `FileObserver` only registers when `/data/adb/modules/playintegrityfix` exists at boot. Installing PIF after the daemon boots will not trigger hot-reload until next boot. A parent-directory observer on `/data/adb/modules` for `CREATE` would close this gap, but is over-engineered for the typical install order (PIF first, TEESimulator second).
+
+### Findings explicitly NOT acted on (with reasoning)
+
+- **Opus F5** — claimed M1's null-propagation was defeated by `toPatchLevelInt`'s `?: 20240401`. False: `getRealDevicePatchLevelInt`'s `?.let { return }` catches null BEFORE the extension fallback, falling through to `Build.VERSION.SECURITY_PATCH` (always YYYY-MM-DD). M1 works for its intended vendor-prop case.
+- **Opus F6** — claimed `fetchAndParse` catching only `Exception` strands the poller on `Throwable`. C4's outer `pollOnce` already catches `Throwable` and calls `scheduleNext(false)`. Only history record is missed; thread survives and reschedules.
+- **Opus F7-F9** — pre-existing comment/style issues in `ConfigurationManager.kt` and `App.kt`. Out of session scope.
+- **Opus F8** — `SystemProperties.get(..., Build.VERSION.SECURITY_PATCH)` is functionally equivalent to `Build.VERSION.SECURITY_PATCH`. Cosmetic; touching it is scope creep.
+- **Opus F11** — "UDP block" naming claim. "Block" reads as noun (group of rules), not verb. Semantics correct.
+- **Opus F12** — `latestKnown` uses `lastOrNull` instead of `maxOrNull`. Pre-existing minor (also flagged in the prior critic pass); out of CRITICAL+MAJOR scope.
 
 ## File index — everything touched this session
 
