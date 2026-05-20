@@ -101,18 +101,19 @@ object CertificateGenerator {
 
                 val keybox = getKeyboxForAlgorithm(uid, params.algorithm)
 
-                val (signingKey, issuer) =
+                val attestKeyInfo =
                     if (attestKeyAlias != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        getAttestationKeyInfo(uid, attestKeyAlias)?.let { it.first to it.second }
-                            ?: (keybox.keyPair to getIssuerFromKeybox(keybox))
-                    } else {
-                        keybox.keyPair to getIssuerFromKeybox(keybox)
-                    }
+                        getAttestationKeyInfo(uid, attestKeyAlias)
+                    } else null
+
+                val (signingKey, issuer) = attestKeyInfo
+                    ?.let { it.first to it.second }
+                    ?: (keybox.keyPair to getIssuerFromKeybox(keybox))
 
                 val leafCert =
                     buildCertificate(subjectKeyPair, signingKey, issuer, params, uid, securityLevel)
 
-                if (attestKeyAlias != null) {
+                if (attestKeyInfo != null) {
                     listOf(leafCert)
                 } else {
                     listOf(leafCert) + keybox.certificates
