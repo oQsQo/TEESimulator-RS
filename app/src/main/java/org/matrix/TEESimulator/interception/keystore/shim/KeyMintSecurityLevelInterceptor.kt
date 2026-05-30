@@ -126,13 +126,18 @@ class KeyMintSecurityLevelInterceptor(
             val keyDescriptor =
                 data.readTypedObject(KeyDescriptor.CREATOR)
                     ?: return TransactionResult.SkipTransaction
-            // Evict generated key data but retain patched chains so detectors
-            // can't use importKey to force unpatched getKeyEntry responses.
+            // A successful importKey replaces the alias's key in the real keystore2, so any prior
+            // generate/patch cache for this alias is stale. Drop it: a non-attested import then
+            // falls through to the real keystore2 (origin=IMPORTED, imported leaf), and the
+            // attested-import branch below re-caches the fresh patched chain. Without this,
+            // getKeyEntry replays the prior generated attestation (duck STALE_GENERATED_AFTER_IMPORT).
             val keyId = KeyIdentifier(callingUid, keyDescriptor.alias)
             if (generatedKeys.remove(keyId) != null) {
                 SystemLogger.debug("Remove generated key on importKey $keyId")
                 GeneratedKeyPersistence.delete(keyId)
             }
+            teeResponses.remove(keyId)
+            patchedChains.remove(keyId)
             attestationKeys.remove(keyId)
             importedKeys.add(keyId)
             SystemLogger.trace { "[TRACE-$txId] post-importKey $keyId: added to importedKeys, skipUid=${ConfigurationManager.shouldSkipUid(callingUid)}" }
@@ -1232,12 +1237,32 @@ class KeyMintSecurityLevelInterceptor(
                 ?.value
         }
 
+        /**
+         * Drops the cached TEE/patched response (and patched chain) addressed by KEY_ID so a
+         * post-mutation getKeyEntry falls through to the now-updated real keystore2 key. Used
+         * after updateSubcomponent re-keys a patched chain (duck
+         * STALE_TEE_RESPONSE_AFTER_KEY_ID_UPDATE).
+         */
+        fun evictTeeResponseByKeyId(callingUid: Int, nspace: Long?) {
+            if (nspace == null || nspace == 0L) return
+            teeResponses.entries
+                .filter { (keyId, _) -> keyId.uid == callingUid }
+                .find { (_, response) -> response.metadata?.key?.nspace == nspace }
+                ?.let { evictTeeResponse(it.key) }
+        }
+
+        /** Alias-addressed counterpart of [evictTeeResponseByKeyId]. */
+        fun evictTeeResponse(keyId: KeyIdentifier) {
+            teeResponses.remove(keyId)
+            patchedChains.remove(keyId)
+        }
+
         fun getPatchedChain(keyId: KeyIdentifier): Array<Certificate>? = patchedChains[keyId]
 
         fun isAttestationKey(keyId: KeyIdentifier): Boolean = attestationKeys.contains(keyId)
 
         fun cleanupKeyData(keyId: KeyIdentifier) {
-            purgeGrantsForKey(keyId) // grants die with the key (re-key orphans them too)
+            purgeGrantsForKey(keyId) // grants die with the key (Android 16 path; no-op pre-36)
             if (generatedKeys.remove(keyId) != null) {
                 SystemLogger.debug("Remove generated key ${keyId}")
                 GeneratedKeyPersistence.delete(keyId)

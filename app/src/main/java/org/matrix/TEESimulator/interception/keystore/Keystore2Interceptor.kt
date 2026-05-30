@@ -635,6 +635,18 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
             }
 
         if (generatedKeyInfo == null) {
+            // Patch-mode key (cached in teeResponses, not generatedKeys): the real keystore2 applies
+            // the update, so drop our stale cached chain. Otherwise getKeyEntry replays the
+            // pre-update generated attestation (duck STALE_TEE_RESPONSE_AFTER_KEY_ID_UPDATE).
+            when (descriptor.domain) {
+                Domain.KEY_ID ->
+                    KeyMintSecurityLevelInterceptor.evictTeeResponseByKeyId(callingUid, descriptor.nspace)
+                Domain.APP ->
+                    descriptor.alias?.let {
+                        KeyMintSecurityLevelInterceptor.evictTeeResponse(KeyIdentifier(callingUid, it))
+                    }
+                else -> {}
+            }
             descriptor.alias?.let {
                 val kid = KeyIdentifier(callingUid, it)
                 userUpdatedKeys.add(kid)
