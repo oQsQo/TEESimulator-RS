@@ -16,23 +16,16 @@ echo "  🔉  $(_msg confirm_vol_down)"
 echo " "
 
 confirm() {
-    vol_tmp="${TMPDIR:-/data/local/tmp}/teesim_vol_key"
-    : > "$vol_tmp"
-
-    # Stream getevent and match VOLUME DOWN inline. Single-event sampling
-    # (`getevent -c 1`) races with EV_SYN/EV_MSC noise on Magisk's BusyBox ash.
-    /system/bin/timeout 10 /system/bin/sh -c '
-        /system/bin/getevent -lq 2>/dev/null | while IFS= read -r line; do
-            case "$line" in
-                *KEY_VOLUMEUP*DOWN*)   echo UP   > "$1"; exit 0 ;;
-                *KEY_VOLUMEDOWN*DOWN*) echo DOWN > "$1"; exit 0 ;;
-            esac
-        done
-    ' _ "$vol_tmp"
-
-    key=$(cat "$vol_tmp" 2>/dev/null)
-    rm -f "$vol_tmp"
-    [ "$key" = "UP" ] && return 0
+    # Sample getevent in 1s bursts; a piped stream block-buffers and misses
+    # a single key-press before the timeout.
+    deadline=$(( $(date +%s) + 10 ))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        events=$(/system/bin/timeout 1 /system/bin/getevent -l 2>/dev/null)
+        case "$events" in
+            *KEY_VOLUMEUP*)   return 0 ;;
+            *KEY_VOLUMEDOWN*) return 1 ;;
+        esac
+    done
     return 1
 }
 
