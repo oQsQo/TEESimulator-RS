@@ -1,3 +1,31 @@
+## TEESimulator-RS v6.0.1-280
+
+Clears the Duck Detector generate-mode parcel fingerprint that real Android 16 hardware also trips, fixes RSA attestation under an EC-only keybox, and restores device-property attestation for Play Integrity hardware apps such as BHIM and UPI. Generate-mode fix field-confirmed on Android 16.
+
+### Detection coverage
+- Generate-mode fingerprint: Duck reads the reply at a flat 12-byte stride and flags the sentinel tuple at positions 12 and 13 that the device's native ALGORITHM-first authorization order lands on. Real A16 silicon trips the same probe, so faithful mirroring stayed flagged. `normalizeAuthorizationLayout` marshals the auth array, runs Duck's exact predicate, and applies a minimal deterministic reorder only when it would match. Count, values, security levels, and the cert chain are untouched, and the reorder keys on the byte condition, never on a package. Applied on both the patch and forge reply paths. (#33)
+- `updateAad` on a non-AEAD operation now answers per vendor: Samsung and Xiaomi-MTK TEEs return success, others return INVALID_TAG, matching Duck's OperationErrorPathProbe on both the sign/verify and cipher paths.
+
+### Attestation correctness (Android 16, EC and RSA)
+- RSA leaf under an EC-only keybox: patching used to catch the no-RSA-key throw and return the chain untouched, leaking the device's real unlocked Root of Trust for RSA keys while EC keys patched cleanly. It now falls back to any keybox key (EC preferred) and signs the patched leaf with the keybox key's own algorithm, so the RSA leaf re-roots to the Google keybox under a forged locked RoT.
+- RSA attest-key forge on an EC-only keybox: the forge path matched the algorithm exactly and threw -75 ATTESTATION_KEYS_NOT_PROVISIONED on a miss, so an RSA ATTEST_KEY request never rooted and verifiers reported an unknown certificate. It now falls back to any attestation key, since an EC key validly ECDSA-signs an RSA-subject leaf. No-op on a dual keybox.
+- A16 attestVersion: the device's KeyMint reports version 100 and the lazy cache shadowed the BAKLAVA-to-400 map, so the forge presented 100. It now caches the AOSP value per SDK and presents the correct 400.
+- Algorithm-split key on restore: a persisted record holding an EC private key under an RSA leaf failed every signature as DATA_TOO_LARGE_FOR_MODULUS. Restore now drops the record when the private key and served leaf disagree, so the next generateKey rebuilds a coherent key.
+- Stale chain on regenerate: reusing an alias in generateKey now evicts the cached chain, matching keystore2, so getKeyEntry serves the current key instead of a stale forge from an earlier generation.
+
+### App compatibility
+- Device-property attestation (BRAND, MODEL, and the rest) now forges unconditionally. The old gate probed the live TEE, which is dead on every device the module serves, so it rejected GMS Play Integrity's hardware path and broke BHIM and other UPI and Play-Integrity apps. Device-ID attestation (IMEI, serial) stays governed by the real KeyMint caller-permission rule: privileged callers get it, ordinary apps do not.
+- getKeyEntry now reaches the owned-key lookup for skipped privileged UIDs, so framework attestKeyAlias resolution no longer returns "Invalid attestKeyAlias" for Key Attestation over Shizuku. Non-owned keys still skip post-processing, so a real app's key is never patched.
+- Device-ID attestation over Shizuku (a privileged UID absent from target.txt) now takes the forge path instead of hitting the real TEE's CANNOT_ATTEST_IDS (-66). "Use attest key" no longer double-roots: a reused persistent attest key is resolved by KEY_ID as well as alias, and an unresolved designated attest key refuses to emit a leaf rather than silently re-rooting under the keybox.
+
+### Diagnostics (debug builds only)
+- Per-UID attestation dossier for targeted UIDs at /data/local/tmp/teesim/, recording the decoded chain on both forge and patch paths, key params, the keybox pick (including EC fail-safe), prop sources, forge failures, the emitted authorization shape, and served-versus-verified chains. Release builds strip this through R8 and stay silent. Keybox certificate serials log on every fetch for revocation triage.
+
+### Verified
+- Android 16: generate-mode fingerprint signal gone, confirmed on device 2026-06-19.
+
+---
+
 ## TEESimulator-RS v6.0.1-251
 
 14 commits since v6.0.0-235. Clears the remaining Duck Detector grant-domain rows (incl. the Android 16 OnePlus report), restores Google Wallet and fingerprint compatibility, and removes the in-module patch-level/bulletin resolvers. Test device (SDK 35) TEE tamper score 28 → 8.
