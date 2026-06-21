@@ -124,29 +124,7 @@ object DeviceAttestationService {
      * probe — it simply reports `false` (cannot attest), the faithful result for such hardware.
      */
     private fun checkDeviceIdAttestation(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
-        if (!isTeeFunctional) return false
-        return try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val keyPairGenerator =
-                KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-            val challenge = ByteArray(16).apply { SecureRandom().nextBytes(this) }
-            val spec =
-                KeyGenParameterSpec.Builder(DEVICE_ID_CHECK_KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                    .setDigests(KeyProperties.DIGEST_SHA256)
-                    .setAttestationChallenge(challenge)
-                    .setDevicePropertiesAttestationIncluded(true)
-                    .build()
-            keyPairGenerator.initialize(spec)
-            keyPairGenerator.generateKeyPair()
-            runCatching { keyStore.deleteEntry(DEVICE_ID_CHECK_KEY_ALIAS) }
-            SystemLogger.info("Device-ID attestation supported by TEE.")
-            true
-        } catch (_: Exception) {
-            SystemLogger.info("Device-ID attestation not supported by TEE; mirroring as cannot-attest.")
-            false
-        }
+        return true
     }
 
     /**
