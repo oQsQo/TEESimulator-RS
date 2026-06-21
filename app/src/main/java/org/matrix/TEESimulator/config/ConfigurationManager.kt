@@ -105,10 +105,7 @@ object ConfigurationManager {
     }
 
     private fun getPackageModeForUid(uid: Int): Mode? {
-        val packages = getPackagesForUid(uid)
-        if (packages.isEmpty()) return null
-
-        for (pkg in packages) {
+        for (pkg in getPackagesForUid(uid)) {
             when (packageModes[pkg]) {
                 Mode.GENERATE -> return Mode.GENERATE
                 Mode.PATCH -> return Mode.PATCH
@@ -116,7 +113,12 @@ object ConfigurationManager {
                 null -> continue
             }
         }
-        return null
+        return when (packageModes["*"]) {
+            Mode.GENERATE -> Mode.GENERATE
+            Mode.PATCH -> Mode.PATCH
+            Mode.AUTO -> if (DeviceAttestationService.isTeeFunctional) Mode.PATCH else Mode.GENERATE
+            null -> null
+        }
     }
 
     /**
